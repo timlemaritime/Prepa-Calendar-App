@@ -1,0 +1,15 @@
+{
+  "name": "EDEN - Prepa Calendar",
+  "short_name": "Prepa Calendar",
+  "start_url": ".",
+  "display": "standalone",
+  "background_color": "#0f172a",
+  "theme_color": "#0f172a",
+  "icons": [
+    {
+      "src": "Logo.EDENPrepa.jpg",
+      "sizes": "300x300",
+      "type": "image/jpeg"
+    }
+  ]
+}
