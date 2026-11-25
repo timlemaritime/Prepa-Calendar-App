@@ -1,5 +1,5 @@
 {
-  "id": "/Prepa-Calendar-App/v2",
+  "id": "/Prepa-Calendar-App/v3",
   "name": "EDEN - Prepa Calendar",
   "short_name": "Prepa Calendar",
   "start_url": ".",
@@ -12,12 +12,6 @@
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any"
-    },
-    {
-      "src": "Logo.EDENPrepa.jpg",
-      "sizes": "512x512",
-      "type": "image/jpeg",
-      "purpose": "maskable"
     }
   ]
 }
