@@ -7,9 +7,16 @@
   "theme_color": "#0f172a",
   "icons": [
     {
+      "src": "Logo.EDENPrepaTr.png",
+      "sizes": "300x300",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
       "src": "Logo.EDENPrepa.jpg",
       "sizes": "300x300",
-      "type": "image/jpeg"
+      "type": "image/jpeg",
+      "purpose": "maskable"
     }
   ]
 }
