@@ -15,21 +15,69 @@
     html, body {
       margin: 0; padding: 0; width: 100%; height: 100dvh;
       overflow: hidden; background: #0f172a;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
     }
     iframe {
       border: none; width: 100%; height: 100dvh; display: block;
+    }
+    #iosPushPrompt {
+      display: none;
+      position: fixed;
+      inset: 0;
+      z-index: 9999;
+      background: rgba(15, 23, 42, 0.82);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+    .push-prompt-card {
+      width: 100%;
+      max-width: 340px;
+      background: linear-gradient(145deg, rgba(30, 41, 59, 0.96), rgba(15, 23, 42, 0.98));
+      border: 1px solid rgba(82, 156, 224, 0.5);
+      border-radius: 20px;
+      padding: 22px;
+      text-align: center;
+      color: #f8fafc;
+      box-shadow: 0 20px 45px rgba(0, 0, 0, 0.6);
+    }
+    .push-prompt-card h3 { margin: 0 0 8px; font-size: 1.05rem; }
+    .push-prompt-card p { margin: 0 0 18px; font-size: 0.85rem; color: #cbd5e1; line-height: 1.4; }
+    .push-prompt-actions { display: flex; gap: 10px; }
+    .push-prompt-actions button {
+      flex: 1; padding: 10px 12px; border-radius: 12px;
+      font-size: 0.88rem; font-weight: 700; cursor: pointer;
+    }
+    #cancelPushPrompt {
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      color: #cbd5e1;
+    }
+    #confirmPushPrompt {
+      background: #529ce0;
+      border: 1px solid #529ce0;
+      color: #0f172a;
     }
   </style>
 </head>
 <body>
   <iframe id="appFrame" src="https://script.google.com/macros/s/AKfycbzZlSOAKIdhyvxLdOAEtC0Nc68P6Q0w0-9GVwc2Grqik8Qt7YvLiFAMX-FZ-FaxrPiu/exec" allow="fullscreen"></iframe>
 
+  <div id="iosPushPrompt">
+    <div class="push-prompt-card">
+      <h3>Notifications Emploi du Temps</h3>
+      <p>Appuyez sur Autoriser pour recevoir les rappels de cours sur cet appareil.</p>
+      <div class="push-prompt-actions">
+        <button type="button" id="cancelPushPrompt">Annuler</button>
+        <button type="button" id="confirmPushPrompt">Autoriser</button>
+      </div>
+    </div>
+  </div>
+
   <script>
     const VAPID_PUBLIC_KEY = 'BOHPzEgxWPqP0F3n_vx_fAsM4G_ZiWsqXBopV3kQevIf5QuzFol20EB93gRwQ70GL9ald5toAXCUwhodAMMgYTs';
-
-    if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('./sw.js');
-    }
 
     function urlBase64ToUint8Array(base64String) {
       const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
@@ -44,6 +92,60 @@
         frame.contentWindow.postMessage(payload, '*');
       }
     }
+
+    function getSwUrl() {
+      const url = new URL(window.location.href);
+      if (!url.pathname.endsWith('/') && !url.pathname.split('/').pop().includes('.')) {
+        url.pathname += '/';
+      }
+      return new URL('sw.js', url.href).href;
+    }
+
+    async function getActiveServiceWorker() {
+      if (!('serviceWorker' in navigator)) {
+        throw new Error('Service Worker non supporté.');
+      }
+      await navigator.serviceWorker.register(getSwUrl());
+      return await Promise.race([
+        navigator.serviceWorker.ready,
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('Service Worker inactif (vérifiez sw.js sur GitHub).')), 6000)
+        )
+      ]);
+    }
+
+    if ('serviceWorker' in navigator) {
+      getActiveServiceWorker().catch((err) => console.warn('SW init:', err.message));
+    }
+
+    async function executePushSubscription() {
+      const promptEl = document.getElementById('iosPushPrompt');
+      if (promptEl) promptEl.style.display = 'none';
+
+      try {
+        const permission = await Notification.requestPermission();
+        if (permission !== 'granted') {
+          return replyToApp({ type: 'PUSH_ERROR', reason: 'Permission refusée par le navigateur.' });
+        }
+        const reg = await getActiveServiceWorker();
+        let sub = await reg.pushManager.getSubscription();
+        if (!sub) {
+          sub = await reg.pushManager.subscribe({
+            userVisibleOnly: true,
+            applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY)
+          });
+        }
+        replyToApp({ type: 'PUSH_SUBSCRIBED', subscription: sub.toJSON() });
+      } catch (err) {
+        replyToApp({ type: 'PUSH_ERROR', reason: err.message || "Erreur d'activation Push" });
+      }
+    }
+
+    document.getElementById('confirmPushPrompt').addEventListener('click', executePushSubscription);
+    document.getElementById('cancelPushPrompt').addEventListener('click', () => {
+      document.getElementById('iosPushPrompt').style.display = 'none';
+      replyToApp({ type: 'PUSH_ERROR', reason: 'Activation annulée.' });
+    });
 
     window.addEventListener('message', async (event) => {
       if (event.origin !== 'https://script.google.com' && !event.origin.endsWith('.googleusercontent.com')) {
@@ -64,46 +166,44 @@
         if (!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) {
           return replyToApp({ type: 'PUSH_STATUS', supported: false });
         }
-        const reg = await navigator.serviceWorker.ready;
-        const sub = await reg.pushManager.getSubscription();
-        replyToApp({
-          type: 'PUSH_STATUS',
-          supported: true,
-          permission: Notification.permission,
-          subscribed: Boolean(sub),
-          subscription: sub ? sub.toJSON() : null
-        });
+        try {
+          const reg = await getActiveServiceWorker();
+          const sub = await reg.pushManager.getSubscription();
+          replyToApp({
+            type: 'PUSH_STATUS',
+            supported: true,
+            permission: Notification.permission,
+            subscribed: Boolean(sub),
+            subscription: sub ? sub.toJSON() : null
+          });
+        } catch (err) {
+          replyToApp({ type: 'PUSH_STATUS', supported: false });
+        }
       }
 
       if (type === 'SUBSCRIBE_PUSH') {
-        try {
-          const permission = await Notification.requestPermission();
-          if (permission !== 'granted') {
-            return replyToApp({ type: 'PUSH_ERROR', reason: 'Permission refusée par le navigateur.' });
-          }
-          const reg = await navigator.serviceWorker.ready;
-          let sub = await reg.pushManager.getSubscription();
-          if (!sub) {
-            sub = await reg.pushManager.subscribe({
-              userVisibleOnly: true,
-              applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY)
-            });
-          }
-          replyToApp({ type: 'PUSH_SUBSCRIBED', subscription: sub.toJSON() });
-        } catch (err) {
-          replyToApp({ type: 'PUSH_ERROR', reason: err.message });
+        if (Notification.permission === 'granted') {
+          return executePushSubscription();
         }
+        if (Notification.permission === 'denied') {
+          return replyToApp({ type: 'PUSH_ERROR', reason: 'Notifications bloquées dans les réglages du téléphone.' });
+        }
+        if (isIos) {
+          document.getElementById('iosPushPrompt').style.display = 'flex';
+          return;
+        }
+        executePushSubscription();
       }
 
       if (type === 'UNSUBSCRIBE_PUSH') {
         try {
-          const reg = await navigator.serviceWorker.ready;
+          const reg = await getActiveServiceWorker();
           const sub = await reg.pushManager.getSubscription();
           const endpoint = sub ? sub.endpoint : null;
           if (sub) await sub.unsubscribe();
           replyToApp({ type: 'PUSH_UNSUBSCRIBED', endpoint });
         } catch (err) {
-          replyToApp({ type: 'PUSH_ERROR', reason: err.message });
+          replyToApp({ type: 'PUSH_ERROR', reason: err.message || 'Erreur de désactivation' });
         }
       }
     });
